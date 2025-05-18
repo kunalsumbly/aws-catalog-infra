@@ -1,0 +1,8 @@
+.idea
+.terraform
+*.hcl
+*.backup
+test
+tfplan
+*.iml
+*.tfstate
