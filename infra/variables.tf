@@ -31,6 +31,11 @@ variable "config_service_image" {
   type        = string
 }
 
+variable "demo_service_image" {
+  description = "ECR image for the demo service"
+  type        = string
+}
+
 variable "catalog_service_port" {
   description = "Port for the catalog service"
   type        = number
@@ -38,6 +43,11 @@ variable "catalog_service_port" {
 
 variable "config_service_port" {
   description = "Port for the catalog service"
+  type        = number
+}
+
+variable "demo_service_port" {
+  description = "Port for the demo service"
   type        = number
 }
 

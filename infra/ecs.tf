@@ -73,6 +73,13 @@ resource "aws_security_group" "ecs" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port = 9090
+    to_port   = 9090
+    protocol  = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port = 0
     to_port   = 0
@@ -137,6 +144,21 @@ resource "aws_lb_target_group" "catalog" {
   }
 }
 
+// alb target group for demo service
+resource "aws_lb_target_group" "demoservice" {
+  name        = "demoservice-tg"
+  port        = var.demo_service_port
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.springboot.id
+  target_type = "ip"
+
+  health_check {
+    path     = "/actuator/health"
+    protocol = "HTTP"
+  }
+}
+
+
 // http listener
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
@@ -177,6 +199,18 @@ resource "aws_lb_listener" "config" {
     target_group_arn = aws_lb_target_group.config.arn
   }
 }
+
+resource "aws_lb_listener" "demo" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = var.demo_service_port
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.demoservice.arn
+  }
+}
+
 
 
 
@@ -226,6 +260,10 @@ resource "aws_ecs_task_definition" "config" {
         {
           name  = "SPRING_RABBITMQ_PASSWORD"
           value = "${var.rabbitmq_password != "" ? var.rabbitmq_password : random_password.rabbitmq.result}"
+        },
+        {
+          name  = "SPRING_RABBITMQ_SSL_ENABLED"
+          value = "true"
         }
       ]
     }
@@ -239,7 +277,7 @@ resource "aws_ecs_service" "config" {
   name            = "config-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.config.arn
-  desired_count   = 2
+  desired_count   = 3
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -321,6 +359,69 @@ resource "aws_ecs_task_definition" "catalog" {
   ])
 }
 
+// ecs task definition for demo-service
+
+resource "aws_ecs_task_definition" "demoservice" {
+  family             = "demo-service"
+  requires_compatibilities = ["FARGATE"]
+  network_mode       = "awsvpc"
+  cpu                = "256"
+  memory             = "512"
+  execution_role_arn = aws_iam_role.ecs_task_execution.arn
+  task_role_arn = aws_iam_role.ecs_task_execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "demo-service"
+      image = var.demo_service_image
+      portMappings = [
+        {
+          containerPort = var.demo_service_port
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = "/ecs/demo-service"
+          awslogs-region        = "ap-southeast-2"
+          awslogs-stream-prefix = "ecs"
+        }
+      }
+      environment = [
+        {
+          name  = "SPRING_CONFIG_IMPORT"
+          value = "configserver:http://${aws_lb.main.dns_name}:8888"
+        },
+        {
+          name  = "SPRING_PROFILES_ACTIVE"
+          value = "prod"
+        },
+        { name = "AWS_REGION", value = "ap-southeast-2" },
+        {
+          name  = "SPRING_RABBITMQ_HOST"
+          value = regex("amqps://(.*):5671", aws_mq_broker.rabbitmq.instances.0.endpoints[0])[0]
+        },
+        {
+          name  = "SPRING_RABBITMQ_PORT"
+          value = "5671"
+        },
+        {
+          name  = "SPRING_RABBITMQ_USERNAME"
+          value = "${var.rabbitmq_username}"
+        },
+        {
+          name  = "SPRING_RABBITMQ_PASSWORD"
+          value = "${var.rabbitmq_password != "" ? var.rabbitmq_password : random_password.rabbitmq.result}"
+        },
+        {
+          "name": "JAVA_TOOL_OPTIONS",
+          "value": "-Djavax.net.debug=ssl,handshake"
+        }
+      ]
+    }
+  ])
+}
+
 
 // ecs service for catalog service
 
@@ -328,7 +429,7 @@ resource "aws_ecs_service" "catalog" {
   name            = "catalog-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.catalog.arn
-  desired_count   = 3
+  desired_count   = 2
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -349,6 +450,31 @@ resource "aws_ecs_service" "catalog" {
   depends_on = [aws_lb_target_group.catalog,aws_ecs_service.config]
 }
 
+
+// ecs service for demo service
+
+resource "aws_ecs_service" "demoservice" {
+  name            = "demo-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.demoservice.arn
+  desired_count   = 2
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets         = [aws_subnet.public_az1.id, aws_subnet.public_az2.id]
+    assign_public_ip = true
+    security_groups = [aws_security_group.ecs.id]
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.demoservice.arn
+    container_name   = "demo-service"
+    container_port   = var.demo_service_port
+  }
+
+  depends_on = [aws_lb_target_group.demoservice, aws_lb_listener.demo]
+}
+
 // create the log groups
 resource "aws_cloudwatch_log_group" "catalog_service" {
   name              = "/ecs/catalog-service"
@@ -367,6 +493,16 @@ resource "aws_cloudwatch_log_group" "config_service" {
   tags = {
     Environment = "production" # Optional, specify tags as needed
     Service     = "config-service"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "demo_service" {
+  name              = "/ecs/demo-service"
+  retention_in_days = 7 # Set log retention period (e.g., 7 days)
+
+  tags = {
+    Environment = "production" # Optional, specify tags as needed
+    Service     = "demo-service"
   }
 }
 
