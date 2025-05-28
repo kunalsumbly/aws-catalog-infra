@@ -564,3 +564,122 @@ resource "aws_ecs_service" "busybox_az2" {
     security_groups  = [aws_security_group.ecs.id]
   }
 }*/
+
+// BusRefresh Scheduler Task Definition
+resource "aws_ecs_task_definition" "busrefresh_scheduler" {
+  family                   = "busrefresh-scheduler"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task_execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "busrefresh-scheduler"
+      image     = "curlimages/curl:latest"
+      essential = true
+      command   = ["sh", "-c", "curl -X POST http://${aws_lb.main.dns_name}:${var.config_service_port}/actuator/busrefresh"]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.busrefresh_scheduler.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+// CloudWatch Log Group for BusRefresh Scheduler
+resource "aws_cloudwatch_log_group" "busrefresh_scheduler" {
+  name              = "/ecs/busrefresh-scheduler"
+  retention_in_days = 7
+
+  tags = {
+    Environment = "production"
+    Service     = "busrefresh-scheduler"
+  }
+}
+
+// CloudWatch Event Rule for BusRefresh Scheduler
+resource "aws_cloudwatch_event_rule" "busrefresh_scheduler" {
+  name                = "busrefresh-scheduler-rule"
+  description         = "Triggers the BusRefresh Scheduler task on a schedule"
+  schedule_expression = var.busrefresh_schedule_expression
+}
+
+// CloudWatch Event Target for BusRefresh Scheduler
+resource "aws_cloudwatch_event_target" "busrefresh_scheduler" {
+  rule      = aws_cloudwatch_event_rule.busrefresh_scheduler.name
+  target_id = "busrefresh-scheduler-target"
+  arn       = aws_ecs_cluster.main.arn
+  role_arn  = aws_iam_role.cloudwatch_events_role.arn
+
+  ecs_target {
+    task_count          = 1
+    task_definition_arn = aws_ecs_task_definition.busrefresh_scheduler.arn
+    launch_type         = "FARGATE"
+
+    network_configuration {
+      subnets          = [aws_subnet.public_az1.id, aws_subnet.public_az2.id]
+      assign_public_ip = true
+      security_groups  = [aws_security_group.ecs.id]
+    }
+  }
+}
+
+// IAM Role for CloudWatch Events to run ECS tasks
+resource "aws_iam_role" "cloudwatch_events_role" {
+  name = "cloudwatch-events-ecs-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+// IAM Policy for CloudWatch Events to run ECS tasks
+resource "aws_iam_role_policy" "cloudwatch_events_policy" {
+  name = "cloudwatch-events-ecs-policy"
+  role = aws_iam_role.cloudwatch_events_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:RunTask"
+        ]
+        Resource = [
+          aws_ecs_task_definition.busrefresh_scheduler.arn
+        ]
+        Condition = {
+          ArnLike = {
+            "ecs:cluster" = aws_ecs_cluster.main.arn
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = [
+          "*"
+        ]
+      }
+    ]
+  })
+}

@@ -81,3 +81,9 @@ variable "aws_s3_bucket_name" {
   type        = string
   default     = "test-kunal-pii-logs"
 }
+
+variable "busrefresh_schedule_expression" {
+  description = "Schedule expression for the busrefresh scheduler task (in cron or rate format)"
+  type        = string
+  default     = "rate(5 minutes)"
+}
