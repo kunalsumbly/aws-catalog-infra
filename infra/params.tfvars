@@ -1,6 +1,6 @@
-catalog_service_image = "721431533455.dkr.ecr.ap-southeast-2.amazonaws.com/catalog-service:2025-05-28_14-10-18"
-config_service_image = "721431533455.dkr.ecr.ap-southeast-2.amazonaws.com/config-service:2025-05-28_13-24-03"
-demo_service_image = "721431533455.dkr.ecr.ap-southeast-2.amazonaws.com/demo-service:2025-05-28_13-24-03"
+catalog_service_image = "721431533455.dkr.ecr.ap-southeast-2.amazonaws.com/catalog-service:2025-06-11_22-37-53"
+config_service_image = "721431533455.dkr.ecr.ap-southeast-2.amazonaws.com/config-service:2025-06-11_22-37-53"
+demo_service_image = "721431533455.dkr.ecr.ap-southeast-2.amazonaws.com/demo-service:2025-06-11_22-37-53"
 catalog_service_port = 8080
 config_service_port = 8888
 demo_service_port = 9090

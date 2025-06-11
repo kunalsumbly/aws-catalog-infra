@@ -123,8 +123,13 @@ resource "aws_lb_target_group" "config" {
   target_type = "ip"
 
   health_check {
-    path     = "/actuator/health"
-    protocol = "HTTP"
+    path                = "/actuator/health"
+    protocol            = "HTTP"
+    healthy_threshold   = 10
+    unhealthy_threshold = 10
+    timeout             = 10
+    interval            = 30
+    matcher             = "200"
   }
 
 }
@@ -139,8 +144,13 @@ resource "aws_lb_target_group" "catalog" {
   target_type = "ip"
 
   health_check {
-    path     = "/actuator/health"
-    protocol = "HTTP"
+    path                = "/actuator/health"
+    protocol            = "HTTP"
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+    matcher             = "200"
   }
 }
 
@@ -153,8 +163,13 @@ resource "aws_lb_target_group" "demoservice" {
   target_type = "ip"
 
   health_check {
-    path     = "/actuator/health"
-    protocol = "HTTP"
+    path                = "/actuator/health"
+    protocol            = "HTTP"
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+    matcher             = "200"
   }
 }
 
@@ -277,7 +292,7 @@ resource "aws_ecs_service" "config" {
   name            = "config-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.config.arn
-  desired_count   = 3
+  desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -327,7 +342,7 @@ resource "aws_ecs_task_definition" "catalog" {
       environment = [
         {
           name  = "SPRING_CONFIG_IMPORT"
-          value = "configserver:http://${aws_lb.main.dns_name}:8888"
+          value = "optional:configserver:http://${aws_lb.main.dns_name}:8888"
         },
         {
           name  = "SPRING_PROFILES_ACTIVE"
@@ -390,7 +405,7 @@ resource "aws_ecs_task_definition" "demoservice" {
       environment = [
         {
           name  = "SPRING_CONFIG_IMPORT"
-          value = "configserver:http://${aws_lb.main.dns_name}:8888"
+          value = "optional:configserver:http://${aws_lb.main.dns_name}:8888"
         },
         {
           name  = "SPRING_PROFILES_ACTIVE"
@@ -429,7 +444,7 @@ resource "aws_ecs_service" "catalog" {
   name            = "catalog-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.catalog.arn
-  desired_count   = 2
+  desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
